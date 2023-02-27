@@ -1,4 +1,4 @@
-module github.com/urchinfs/sugon-sdk
+module github.com/urchinfs/starlight-sdk
 
 go 1.19
 
