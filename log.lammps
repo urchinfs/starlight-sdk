@@ -1,0 +1,9 @@
+LAMMPS (31 May 2019)
+OMP_NUM_THREADS environment is not set. Defaulting to 1 thread. (../comm.cpp:88)
+  using 1 OpenMP thread(s) per MPI task
+#!/bin/bash
+
+
+echo "Hello World"
+ERROR: Illegal echo command (../input.cpp:914)
+Last command: echo "Hello World"
