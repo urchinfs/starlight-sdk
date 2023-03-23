@@ -217,7 +217,7 @@ func (sl *starlightclient) GetFileList(path string, showHidden bool) ([]FileMeta
 
 	//提交请求
 	request, err := http.NewRequest(http.MethodGet, uri.String(), nil)
-	logger.Infof("uri.String %s", uri.String())
+	//logger.Infof("uri.String %s", uri.String())
 	if err != nil {
 		logger.Errorf("starlight GetFileList request error " + err.Error())
 		return nil, err
@@ -324,7 +324,7 @@ func (sl *starlightclient) GetFileMeta(file string) (*FileMeta, error) {
 	if fileMetaResp.Code == 200 {
 		return &fileMetaResp.Spec, nil
 	} else if fileMetaResp.Code == 11502 {
-		return nil, fmt.Errorf("404 NOT FOUND")
+		return nil, fmt.Errorf("NoSuchKey")
 	}
 	logger.Infof("fileMetaResp.Code %s", fileMetaResp.Code)
 	return nil, fmt.Errorf("starlight GetFileMeta error fileMetaResp.Code=%s fileMetaResp.Info=%s", fileMetaResp.Code, fileMetaResp.Info)
@@ -438,7 +438,7 @@ func (sl *starlightclient) Download(path string) (io.ReadCloser, error) {
 	uri.RawQuery = data.Encode()
 	//提交请求
 	request, err := http.NewRequest(http.MethodGet, uri.String(), nil)
-	logger.Infof("uri.String %s", uri.String())
+	//logger.Infof("uri.String %s", uri.String())
 	if err != nil {
 		return nil, err
 	}
