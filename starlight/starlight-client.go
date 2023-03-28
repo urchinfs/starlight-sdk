@@ -324,7 +324,7 @@ func (sl *starlightclient) GetFileMeta(file string) (*FileMeta, error) {
 	if fileMetaResp.Code == 200 {
 		return &fileMetaResp.Spec, nil
 	} else if fileMetaResp.Code == 11502 {
-		return nil, fmt.Errorf("NoSuchKey")
+		return nil, fmt.Errorf("404 NOT FOUND")
 	}
 	logger.Infof("fileMetaResp.Code %s", fileMetaResp.Code)
 	return nil, fmt.Errorf("starlight GetFileMeta error fileMetaResp.Code=%s fileMetaResp.Info=%s", fileMetaResp.Code, fileMetaResp.Info)
@@ -415,6 +415,7 @@ func (sl *starlightclient) DeleteFile(path string) (bool, error) {
 }
 
 func (sl *starlightclient) Download(path string) (io.ReadCloser, error) {
+	logger.Infof("startDownload 666 %s", path)
 	err := sl.SetToken()
 	if err != nil {
 		time.Sleep(time.Duration(15) * time.Second)
@@ -438,7 +439,6 @@ func (sl *starlightclient) Download(path string) (io.ReadCloser, error) {
 	uri.RawQuery = data.Encode()
 	//提交请求
 	request, err := http.NewRequest(http.MethodGet, uri.String(), nil)
-	//logger.Infof("uri.String %s", uri.String())
 	if err != nil {
 		return nil, err
 	}
