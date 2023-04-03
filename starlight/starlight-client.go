@@ -326,7 +326,7 @@ func (sl *starlightclient) GetFileMeta(file string) (*FileMeta, error) {
 	if fileMetaResp.Code == 200 {
 		return &fileMetaResp.Spec, nil
 	} else if fileMetaResp.Code == 11502 {
-		return nil, fmt.Errorf("404 NOT FOUND")
+		return nil, fmt.Errorf("NoSuchKey")
 	}
 	logger.Infof("fileMetaResp.Code %s", fileMetaResp.Code)
 	return nil, fmt.Errorf("starlight GetFileMeta error fileMetaResp.Code=%s fileMetaResp.Info=%s", fileMetaResp.Code, fileMetaResp.Info)
@@ -334,7 +334,7 @@ func (sl *starlightclient) GetFileMeta(file string) (*FileMeta, error) {
 
 func (sl *starlightclient) FileExist(file string) (bool, error) {
 	_, err := sl.GetFileMeta(file)
-	if err != nil && strings.Contains(err.Error(), "404") {
+	if err != nil && strings.Contains(err.Error(), "NoSuchKey") {
 		return false, nil
 	} else if err == nil {
 		return true, nil
