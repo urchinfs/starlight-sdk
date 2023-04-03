@@ -246,7 +246,7 @@ func (sl *starlightclient) GetFileList(path string, showHidden bool) ([]FileMeta
 	if fileListResp.Code == 200 {
 		return fileListResp.Spec, nil
 	}
-	return nil, fmt.Errorf("404 NOT FOUND")
+	return nil, fmt.Errorf("NoSuchKey")
 }
 
 func (sl *starlightclient) GetAllFile(path string, showHidden bool, fileList *[]FileMeta, depth, maxDepth int) error {
