@@ -271,11 +271,13 @@ func (sl *starlightclient) GetFileListRecursive(path string, showHidden bool, ma
 }
 
 func (sl *starlightclient) GetFileMeta(file string) (*FileMeta, error) {
+	logger.Infof("starlight GetFileMeta file=%s", file)
 	err := sl.SetToken()
 	if err != nil {
 		time.Sleep(time.Duration(15) * time.Second)
 		err = sl.SetToken()
 		if err != nil {
+			logger.Errorf("starlight GetFileMeta file=%s setToken error=%s", file, err.Error())
 			return nil, err
 		}
 	}
