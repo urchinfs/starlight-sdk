@@ -390,7 +390,14 @@ func (sl *starlightclient) FileOperate(opt, from, target, recursive, force strin
 
 	client := &http.Client{}
 	//处理返回结果
-	response, _ := client.Do(request)
+	anyResponse, _, err := util.Run(15, 150, 4, func() (any, bool, error) {
+		response, err := client.Do(request)
+		if err == nil && response.StatusCode/100 != 2 {
+			err = fmt.Errorf("starlight---FileOperate opt=%s bad resp status %s", opt, response.StatusCode)
+		}
+		return response, false, err
+	})
+	response := anyResponse.(*http.Response)
 	if response.StatusCode/100 != 2 {
 		return false, fmt.Errorf("starlight FileOperate opt=%s target=%s StatusCode error %d", opt, target, response.StatusCode)
 	}
