@@ -253,7 +253,11 @@ func (sl *starlightclient) GetAllFile(path string, showHidden bool, fileList *[]
 	if depth >= maxDepth {
 		return fmt.Errorf("dir depth exceed maxDepth error depth=%d maxDepth=%d", depth, maxDepth)
 	}
-	files, _ := sl.GetFileList(path, showHidden)
+	files, err := sl.GetFileList(path, showHidden)
+	if err != nil {
+		logger.Errorf("starlight GetAllFile GetFileList error %s", err.Error())
+		return err
+	}
 	for _, file := range files {
 		if file.Type == 1 {
 			sl.GetAllFile(file.Path, showHidden, fileList, depth+1, maxDepth)
@@ -261,6 +265,12 @@ func (sl *starlightclient) GetAllFile(path string, showHidden bool, fileList *[]
 			*fileList = append(*fileList, file)
 		}
 	}
+	dirMeta, err := sl.GetFileMeta(path)
+	if err != nil {
+		logger.Errorf("starlight GetAllFile GetFileMeta error %s", err.Error())
+		return err
+	}
+	*fileList = append(*fileList, *dirMeta)
 	return nil
 }
 
