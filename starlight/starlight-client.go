@@ -451,7 +451,11 @@ func (sl *starlightclient) FileOperate(opt, from, target, recursive, force strin
 	fmt.Println(string(body))
 	var starlightResp StarlightResp
 	if err == nil {
-		err = json.Unmarshal((body), &starlightResp)
+		return false, err
+	}
+	err = json.Unmarshal((body), &starlightResp)
+	if err != nil {
+		return false, err
 	}
 
 	if starlightResp.Code != 200 {
@@ -596,8 +600,12 @@ func (sl *starlightclient) UploadTinyFile(filePath string, reader io.Reader) err
 
 	body, err := io.ReadAll(response.Body)
 	var uploadResp UploadResp
-	if err == nil {
-		err = json.Unmarshal((body), &uploadResp)
+	if err != nil {
+		return err
+	}
+	err = json.Unmarshal((body), &uploadResp)
+	if err != nil {
+		return err
 	}
 
 	if uploadResp.Code != 200 {
@@ -703,12 +711,17 @@ func (sl *starlightclient) UploadBigFile(filePath string, reader io.Reader, tota
 		defer response.Body.Close()
 
 		body, err := io.ReadAll(response.Body)
-		var uploadResp UploadResp
-		if err == nil {
-			logger.Errorf("starlight---UploadBigFile json parse %s", err.Error())
-			err = json.Unmarshal((body), &uploadResp)
-		}
+		if err != nil {
+			logger.Errorf("starlight---UploadBigFile ReadAll error %s", err.Error())
+			return err
 
+		}
+		var uploadResp UploadResp
+		err = json.Unmarshal((body), &uploadResp)
+		if err != nil {
+			logger.Errorf("starlight---UploadBigFile json parse %s", err.Error())
+			return err
+		}
 		if uploadResp.Code != 200 {
 			return fmt.Errorf("starlight---Upload failed, path=%s, Code=%s, Message=%s", filePath, uploadResp.Code, uploadResp.Info)
 		}
