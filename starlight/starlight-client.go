@@ -136,7 +136,7 @@ func (sl *starlightclient) isTokenValid() (bool, error) {
 	}
 
 	if time.Now().Sub(sl.tokenCreateAt).Hours() > 12 {
-		logger.Infof("token expires 12 hours , need update")
+		logger.Infof("starlight---token expires 12 hours , need update")
 		return false, nil
 	}
 
@@ -157,14 +157,14 @@ func (sl *starlightclient) SetToken() error {
 	req, err := http.NewRequest(method, url, payload)
 
 	if err != nil {
-		logger.Errorf("starlight SetToken: " + err.Error())
+		logger.Errorf("starlight---SetToken: " + err.Error())
 		return err
 	}
 	req.Header.Add("Content-Type", "application/json")
 
 	res, err := client.Do(req)
 	if err != nil {
-		logger.Errorf("starlight SetToken: " + err.Error())
+		logger.Errorf("starlight---SetToken: " + err.Error())
 		return err
 	}
 	defer res.Body.Close()
@@ -176,16 +176,16 @@ func (sl *starlightclient) SetToken() error {
 	}
 	err = json.Unmarshal((body), &starlightResp)
 	if err != nil {
-		logger.Errorf("starlight GetFileMeta json parse error " + err.Error())
+		logger.Errorf("starlight---GetFileMeta json parse error " + err.Error())
 		return err
 	}
 	if starlightResp.Code != 200 {
-		return fmt.Errorf("starlight SetToken bad token return code %s %s", starlightResp.Code, starlightResp.Info)
+		return fmt.Errorf("starlight---SetToken bad token return code %s %s", starlightResp.Code, starlightResp.Info)
 	}
 	sl.token = starlightResp.Spec
 	sl.tokenCreateAt = time.Now()
 	//println("token:" + sl.token)
-	return fmt.Errorf("starlight SetToken get token failed")
+	return fmt.Errorf("starlight---SetToken get token failed")
 
 }
 
@@ -215,20 +215,36 @@ func (sl *starlightclient) GetFileList(path string, showHidden bool) ([]FileMeta
 	}
 	uri.RawQuery = data.Encode()
 
-	//提交请求
-	request, err := http.NewRequest(http.MethodGet, uri.String(), nil)
-	//logger.Infof("uri.String %s", uri.String())
+	anyResponse, _, err := util.Run(15, 150, 4, func() (any, bool, error) {
+		//提交请求
+		request, err := http.NewRequest(http.MethodGet, uri.String(), nil)
+		//logger.Infof("uri.String %s", uri.String())
+		if err != nil {
+			logger.Errorf("starlight---GetFileList request error " + err.Error())
+			return nil, false, err
+		}
+		request.Header.Add("bihu-token", sl.token)
+
+		client := &http.Client{}
+		//处理返回结果
+		response, err := client.Do(request)
+		defer client.CloseIdleConnections()
+		if err == nil && response.StatusCode/100 != 2 {
+			err = fmt.Errorf("starlight---GetFileList path=%s request responseCode %s", path, response.StatusCode)
+		}
+		return response, false, err
+	})
+	if anyResponse == nil {
+		logger.Errorf("starlight---GetFileList response nil error")
+		return nil, fmt.Errorf("starlight---response nil")
+	}
 	if err != nil {
-		logger.Errorf("starlight GetFileList request error " + err.Error())
+		logger.Errorf("starlight---GetFileMeta path=%s request error %s", path, err.Error())
 		return nil, err
 	}
-	request.Header.Add("bihu-token", sl.token)
-
-	client := &http.Client{}
-	//处理返回结果
-	response, _ := client.Do(request)
+	response := anyResponse.(*http.Response)
 	if response.StatusCode/100 != 2 {
-		return nil, fmt.Errorf("starlight GetFileMeta path=%s StatusCode error %s", path, response.StatusCode)
+		return nil, fmt.Errorf("starlight---GetFileMeta path=%s StatusCode error %s", path, response.StatusCode)
 	}
 
 	defer response.Body.Close()
@@ -242,7 +258,7 @@ func (sl *starlightclient) GetFileList(path string, showHidden bool) ([]FileMeta
 	if err != nil {
 		return nil, err
 	}
-	defer client.CloseIdleConnections()
+
 	if fileListResp.Code == 200 {
 		return fileListResp.Spec, nil
 	}
@@ -251,11 +267,11 @@ func (sl *starlightclient) GetFileList(path string, showHidden bool) ([]FileMeta
 
 func (sl *starlightclient) GetAllFile(path string, showHidden bool, fileList *[]FileMeta, depth, maxDepth int) error {
 	if depth >= maxDepth {
-		return fmt.Errorf("dir depth exceed maxDepth error depth=%d maxDepth=%d", depth, maxDepth)
+		return fmt.Errorf("starlight---dir depth exceed maxDepth error depth=%d maxDepth=%d", depth, maxDepth)
 	}
 	files, err := sl.GetFileList(path, showHidden)
 	if err != nil {
-		logger.Errorf("starlight GetAllFile GetFileList error %s", err.Error())
+		logger.Errorf("starlight---GetAllFile GetFileList error %s", err.Error())
 		return err
 	}
 	for _, file := range files {
@@ -267,7 +283,7 @@ func (sl *starlightclient) GetAllFile(path string, showHidden bool, fileList *[]
 	}
 	dirMeta, err := sl.GetFileMeta(path)
 	if err != nil {
-		logger.Errorf("starlight GetAllFile GetFileMeta error %s", err.Error())
+		logger.Errorf("starlight---GetAllFile GetFileMeta error %s", err.Error())
 		return err
 	}
 	*fileList = append(*fileList, *dirMeta)
@@ -281,13 +297,13 @@ func (sl *starlightclient) GetFileListRecursive(path string, showHidden bool, ma
 }
 
 func (sl *starlightclient) GetFileMeta(file string) (*FileMeta, error) {
-	logger.Infof("starlight GetFileMeta file=%s", file)
+	logger.Infof("starlight---GetFileMeta file=%s", file)
 	err := sl.SetToken()
 	if err != nil {
 		time.Sleep(time.Duration(15) * time.Second)
 		err = sl.SetToken()
 		if err != nil {
-			logger.Errorf("starlight GetFileMeta file=%s setToken error=%s", file, err.Error())
+			logger.Errorf("starlight---GetFileMeta file=%s setToken error=%s", file, err.Error())
 			return nil, err
 		}
 	}
@@ -304,42 +320,57 @@ func (sl *starlightclient) GetFileMeta(file string) (*FileMeta, error) {
 	}
 	uri.RawQuery = data.Encode()
 
-	//提交请求
-	request, err := http.NewRequest(http.MethodGet, uri.String(), nil)
+	anyResponse, _, err := util.Run(15, 150, 4, func() (any, bool, error) {
+		//提交请求
+		request, err := http.NewRequest(http.MethodGet, uri.String(), nil)
+		if err != nil {
+			logger.Errorf("starlight---GetFileMeta file=%s request error %s", file, err.Error())
+			return nil, false, err
+		}
+		request.Header.Add("bihu-token", sl.token)
 
+		client := &http.Client{}
+		//处理返回结果
+		response, err := client.Do(request)
+		defer client.CloseIdleConnections()
+		if err == nil && response.StatusCode/100 != 2 {
+			err = fmt.Errorf("starlight---GetFileMeta file=%s request responseCode %s", file, response.StatusCode)
+		}
+		return response, false, err
+	})
+	if anyResponse == nil {
+		logger.Errorf("starlight---GetFileMeta response nil error")
+		return nil, fmt.Errorf("starlight---response nil")
+	}
 	if err != nil {
-		logger.Errorf("starlight GetFileMeta file=%s request error %s", file, err.Error())
+		logger.Errorf("starlight---GetFileMeta file=%s request error %s", file, err.Error())
 		return nil, err
 	}
-	request.Header.Add("bihu-token", sl.token)
-
-	client := &http.Client{}
-	//处理返回结果
-	response, _ := client.Do(request)
+	response := anyResponse.(*http.Response)
 	if response.StatusCode/100 != 2 {
-		return nil, fmt.Errorf("starlight GetFileMeta file=%s StatusCode error %s", file, response.StatusCode)
+		return nil, fmt.Errorf("starlight---GetFileMeta file=%s StatusCode error %s", file, response.StatusCode)
 	}
 
 	defer response.Body.Close()
 	body, err := ioutil.ReadAll(response.Body)
 	if err != nil {
-		logger.Errorf("starlight GetFileMeta file=%s GetFileMeta body read error %s", file, err.Error())
+		logger.Errorf("starlight---GetFileMeta file=%s GetFileMeta body read error %s", file, err.Error())
 		return nil, err
 	}
 	var fileMetaResp FileMetaResp
 	err = json.Unmarshal((body), &fileMetaResp)
 	if err != nil {
-		logger.Errorf("starlight GetFileMeta file=%s GetFileMeta json parse error %s", file, err.Error())
+		logger.Errorf("starlight---GetFileMeta file=%s GetFileMeta json parse error %s", file, err.Error())
 		return nil, err
 	}
-	defer client.CloseIdleConnections()
+
 	if fileMetaResp.Code == 200 {
 		return &fileMetaResp.Spec, nil
 	} else if fileMetaResp.Code == 11502 {
 		return nil, fmt.Errorf("NoSuchKey")
 	}
 	logger.Infof("fileMetaResp.Code %s", fileMetaResp.Code)
-	return nil, fmt.Errorf("starlight GetFileMeta error fileMetaResp.Code=%s fileMetaResp.Info=%s", fileMetaResp.Code, fileMetaResp.Info)
+	return nil, fmt.Errorf("starlight---GetFileMeta error fileMetaResp.Code=%s fileMetaResp.Info=%s", fileMetaResp.Code, fileMetaResp.Info)
 }
 
 func (sl *starlightclient) FileExist(file string) (bool, error) {
@@ -380,32 +411,41 @@ func (sl *starlightclient) FileOperate(opt, from, target, recursive, force strin
 	}
 	uri.RawQuery = data.Encode()
 
-	//提交请求
-	request, err := http.NewRequest(http.MethodPost, uri.String(), nil)
-	if err != nil {
-		logger.Errorf("starlight FileOperate opt=%s target=%s request error %s", opt, target, err.Error())
-		return false, err
-	}
-	request.Header.Add("bihu-token", sl.token)
-
-	client := &http.Client{}
-	//处理返回结果
 	anyResponse, _, err := util.Run(15, 150, 4, func() (any, bool, error) {
+		//提交请求
+		request, err := http.NewRequest(http.MethodPost, uri.String(), nil)
+		if err != nil {
+			logger.Errorf("starlight---FileOperate opt=%s target=%s request error %s", opt, target, err.Error())
+			return nil, false, err
+		}
+		request.Header.Add("bihu-token", sl.token)
+
+		client := &http.Client{}
+		//处理返回结果
 		response, err := client.Do(request)
+		defer client.CloseIdleConnections()
 		if err == nil && response.StatusCode/100 != 2 {
 			err = fmt.Errorf("starlight---FileOperate opt=%s bad resp status %s", opt, response.StatusCode)
 		}
 		return response, false, err
 	})
+	if anyResponse == nil {
+		logger.Errorf("starlight---FileOperate response nil Error")
+		return false, fmt.Errorf("starlight---response nil")
+	}
+	if err != nil {
+		logger.Errorf("starlight---FileOperate Error %s", err)
+		return false, err
+	}
 	response := anyResponse.(*http.Response)
 	if response.StatusCode/100 != 2 {
-		return false, fmt.Errorf("starlight FileOperate opt=%s target=%s StatusCode error %d", opt, target, response.StatusCode)
+		return false, fmt.Errorf("starlight---FileOperate opt=%s target=%s StatusCode error %d", opt, target, response.StatusCode)
 	}
 
 	defer response.Body.Close()
 	body, err := ioutil.ReadAll(response.Body)
 	if err != nil {
-		logger.Errorf("starlight FileOperate opt=%s target=%s body read error %s", opt, target, err.Error())
+		logger.Errorf("starlight---FileOperate opt=%s target=%s body read error %s", opt, target, err.Error())
 		return false, err
 	}
 	fmt.Println(string(body))
@@ -413,7 +453,7 @@ func (sl *starlightclient) FileOperate(opt, from, target, recursive, force strin
 	if err == nil {
 		err = json.Unmarshal((body), &starlightResp)
 	}
-	defer client.CloseIdleConnections()
+
 	if starlightResp.Code != 200 {
 		return false, fmt.Errorf("starlight FileOperate opt=%s target=%s data code error Code=%d Info=%s", opt, target, starlightResp.Code, starlightResp.Info)
 	}
@@ -434,7 +474,7 @@ func (sl *starlightclient) DeleteFile(path string) (bool, error) {
 }
 
 func (sl *starlightclient) Download(path string) (io.ReadCloser, error) {
-	logger.Infof("startDownload 666 %s", path)
+	logger.Infof("starlight---startDownload 666 %s", path)
 	err := sl.SetToken()
 	if err != nil {
 		time.Sleep(time.Duration(15) * time.Second)
@@ -456,21 +496,31 @@ func (sl *starlightclient) Download(path string) (io.ReadCloser, error) {
 		}
 	}
 	uri.RawQuery = data.Encode()
-	//提交请求
-	request, err := http.NewRequest(http.MethodGet, uri.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-	request.Header.Add("bihu-token", sl.token)
-	client := &http.Client{}
+
 	//处理返回结果
 	anyResponse, _, err := util.Run(15, 150, 4, func() (any, bool, error) {
+		//提交请求
+		request, err := http.NewRequest(http.MethodGet, uri.String(), nil)
+		if err != nil {
+			return nil, false, err
+		}
+		request.Header.Add("bihu-token", sl.token)
+		client := &http.Client{}
 		response, err := client.Do(request)
+		defer client.CloseIdleConnections()
 		if err == nil && response.StatusCode/100 != 2 {
 			err = fmt.Errorf("starlight---Download bad resp status %s", response.StatusCode)
 		}
 		return response, false, err
 	})
+	if anyResponse == nil {
+		logger.Errorf("starlight---Download response nil Error")
+		return nil, fmt.Errorf("starlight---response nil")
+	}
+	if err != nil {
+		logger.Errorf("starlight---Download Error %s", err)
+		return nil, err
+	}
 	response := anyResponse.(*http.Response)
 
 	return response.Body, nil
@@ -478,10 +528,10 @@ func (sl *starlightclient) Download(path string) (io.ReadCloser, error) {
 
 func (sl *starlightclient) Upload(filePath string, reader io.Reader, totalLength int64) error {
 	if totalLength < FILE_SHARD_LIMIT {
-		logger.Infof("starlight start upload by UploadTinyFile %dB", totalLength)
+		logger.Infof("starlight---start upload by UploadTinyFile %dB", totalLength)
 		return sl.UploadTinyFile(filePath, reader)
 	} else {
-		logger.Infof("starlight start upload by UploadBigFile %dB", totalLength)
+		logger.Infof("starlight---start upload by UploadBigFile %dB", totalLength)
 		return sl.UploadBigFile(filePath, reader, totalLength)
 	}
 }
@@ -491,9 +541,7 @@ func (sl *starlightclient) UploadTinyFile(filePath string, reader io.Reader) err
 	if err != nil {
 		time.Sleep(time.Duration(15) * time.Second)
 		err = sl.SetToken()
-		if err != nil {
-			return err
-		}
+
 	}
 
 	var buf = bytes.Buffer{}
@@ -515,23 +563,34 @@ func (sl *starlightclient) UploadTinyFile(filePath string, reader io.Reader) err
 	//payload := strings.NewReader(`hello world`)
 	//url := "https://starlight.nscc-gz.cn/api/storage/upload?file=/WORK/pcl_xcx_1/mnt&overwrite=true"
 	//println("uri.string: " + uri.String())
-	//提交请求
-	request, err := http.NewRequest(http.MethodPut, uri.String(), &buf)
-	if err != nil {
-		return err
-	}
-	request.Header.Add("bihu-token", sl.token)
-	request.Header.Add("Content-Type", "text/plain")
-	client := &http.Client{}
-	//处理返回结果
 
 	anyResponse, _, err := util.Run(15, 150, 4, func() (any, bool, error) {
+		//提交请求
+		request, err := http.NewRequest(http.MethodPut, uri.String(), &buf)
+		if err != nil {
+			return nil, false, err
+		}
+		request.Header.Add("bihu-token", sl.token)
+		request.Header.Add("Content-Type", "text/plain")
+		client := &http.Client{}
+		defer client.CloseIdleConnections()
 		response, err := client.Do(request)
 		if err == nil && response.StatusCode/100 != 2 {
 			err = fmt.Errorf("starlight---Upload bad resp status %s", response.StatusCode)
 		}
+		if err != nil {
+			logger.Errorf("starlight---Upload TinyFile Error %s", err)
+		}
 		return response, false, err
 	})
+	if anyResponse == nil {
+		logger.Errorf("starlight---Upload TinyFile response nil Error")
+		return fmt.Errorf("starlight---response nil")
+	}
+	if err != nil {
+		logger.Errorf("starlight---Upload TinyFile Error %s", err)
+		return err
+	}
 	response := anyResponse.(*http.Response)
 	defer response.Body.Close()
 
@@ -541,7 +600,6 @@ func (sl *starlightclient) UploadTinyFile(filePath string, reader io.Reader) err
 		err = json.Unmarshal((body), &uploadResp)
 	}
 
-	defer client.CloseIdleConnections()
 	if uploadResp.Code != 200 {
 		return fmt.Errorf("starlight Upload failed, path=%s, Code=%s, Info=%s", filePath, uploadResp.Code, uploadResp.Info)
 	}
@@ -569,7 +627,7 @@ func (sl *starlightclient) UploadBigFile(filePath string, reader io.Reader, tota
 		for {
 			nn, err := reader.Read(pipeBuffer)
 			if err != nil && err != io.EOF {
-				logger.Infof(err.Error())
+				logger.Errorf("starlight---UploadBigFile %s", err.Error())
 				return err
 			}
 			if nn == 0 {
@@ -614,35 +672,45 @@ func (sl *starlightclient) UploadBigFile(filePath string, reader io.Reader, tota
 		}
 		uri.RawQuery = data.Encode()
 
-		//提交请求
-		request, err := http.NewRequest(http.MethodPut, uri.String(), &buf)
-		if err != nil {
-			return err
-		}
-		request.Header.Add("bihu-token", sl.token)
-		request.Header.Add("Content-Range", "bytes="+strconv.Itoa(currentOffset)+"-"+strconv.Itoa(currentOffset+length-1)+"/"+strconv.FormatInt(totalLength, 10))
-		//println("bytes:" + request.Header.Get("Content-Range") + " length:" + strconv.Itoa(length))
-		currentOffset += length
-		client := &http.Client{}
-		//处理返回结果
 		anyResponse, _, err := util.Run(15, 150, 4, func() (any, bool, error) {
+			//提交请求
+			request, err := http.NewRequest(http.MethodPut, uri.String(), &buf)
+			if err != nil {
+				return nil, false, err
+			}
+			request.Header.Add("bihu-token", sl.token)
+			request.Header.Add("Content-Range", "bytes="+strconv.Itoa(currentOffset)+"-"+strconv.Itoa(currentOffset+length-1)+"/"+strconv.FormatInt(totalLength, 10))
+			//println("bytes:" + request.Header.Get("Content-Range") + " length:" + strconv.Itoa(length))
+			currentOffset += length
+			client := &http.Client{}
+			//处理返回结果
 			response, err := client.Do(request)
+			defer client.CloseIdleConnections()
 			if err == nil && response.StatusCode/100 != 2 {
-				err = fmt.Errorf("starlight---Upload bad resp status %s", response.StatusCode)
+				err = fmt.Errorf("starlight---UploadBigFile bad resp status %s", response.StatusCode)
 			}
 			return response, false, err
 		})
+		if anyResponse == nil {
+			logger.Errorf("starlight---UploadBigFile response nil Error")
+			return fmt.Errorf("starlight---UploadBigFile response nil")
+		}
+		if err != nil {
+			logger.Errorf("starlight---UploadBigFile Error %s", err)
+			return err
+		}
 		response := anyResponse.(*http.Response)
 		defer response.Body.Close()
 
 		body, err := io.ReadAll(response.Body)
 		var uploadResp UploadResp
 		if err == nil {
+			logger.Errorf("starlight---UploadBigFile json parse %s", err.Error())
 			err = json.Unmarshal((body), &uploadResp)
 		}
-		defer client.CloseIdleConnections()
+
 		if uploadResp.Code != 200 {
-			return fmt.Errorf("starlight Upload failed, path=%s, Code=%s, Message=%s", filePath, uploadResp.Code, uploadResp.Info)
+			return fmt.Errorf("starlight---Upload failed, path=%s, Code=%s, Message=%s", filePath, uploadResp.Code, uploadResp.Info)
 		}
 
 	}
