@@ -17,7 +17,7 @@ func Run(initBackoff float64,
 	for i := 0; i < maxAttempts; i++ {
 		if i > 0 {
 			time.Sleep(RandBackoffSeconds(initBackoff, maxBackoff, 2.0, i))
-			logger.Infof("starlight retry")
+			logger.Infof("starlight retry %s", i)
 		}
 
 		res, cancel, cause = f()

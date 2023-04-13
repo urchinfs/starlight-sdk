@@ -136,7 +136,7 @@ func (sl *starlightclient) isTokenValid() (bool, error) {
 	}
 
 	if time.Now().Sub(sl.tokenCreateAt).Hours() > 12 {
-		logger.Infof("starlight---token expires 12 hours , need update")
+		logger.Infof("starlight&&&token expires 12 hours , need update")
 		return false, nil
 	}
 
@@ -218,7 +218,6 @@ func (sl *starlightclient) GetFileList(path string, showHidden bool) ([]FileMeta
 	anyResponse, _, err := util.Run(15, 150, 4, func() (any, bool, error) {
 		//提交请求
 		request, err := http.NewRequest(http.MethodGet, uri.String(), nil)
-		//logger.Infof("uri.String %s", uri.String())
 		if err != nil {
 			logger.Errorf("starlight---GetFileList request error " + err.Error())
 			return nil, false, err
@@ -297,7 +296,6 @@ func (sl *starlightclient) GetFileListRecursive(path string, showHidden bool, ma
 }
 
 func (sl *starlightclient) GetFileMeta(file string) (*FileMeta, error) {
-	logger.Infof("starlight---GetFileMeta file=%s", file)
 	err := sl.SetToken()
 	if err != nil {
 		time.Sleep(time.Duration(15) * time.Second)
@@ -369,7 +367,7 @@ func (sl *starlightclient) GetFileMeta(file string) (*FileMeta, error) {
 	} else if fileMetaResp.Code == 11502 {
 		return nil, fmt.Errorf("NoSuchKey")
 	}
-	logger.Infof("fileMetaResp.Code %s", fileMetaResp.Code)
+	logger.Errorf("fileMetaResp.Code %s", fileMetaResp.Code)
 	return nil, fmt.Errorf("starlight---GetFileMeta error fileMetaResp.Code=%s fileMetaResp.Info=%s", fileMetaResp.Code, fileMetaResp.Info)
 }
 
@@ -478,7 +476,6 @@ func (sl *starlightclient) DeleteFile(path string) (bool, error) {
 }
 
 func (sl *starlightclient) Download(path string) (io.ReadCloser, error) {
-	logger.Infof("starlight---startDownload 666 %s", path)
 	err := sl.SetToken()
 	if err != nil {
 		time.Sleep(time.Duration(15) * time.Second)
@@ -532,10 +529,10 @@ func (sl *starlightclient) Download(path string) (io.ReadCloser, error) {
 
 func (sl *starlightclient) Upload(filePath string, reader io.Reader, totalLength int64) error {
 	if totalLength < FILE_SHARD_LIMIT {
-		logger.Infof("starlight---start upload by UploadTinyFile %dB", totalLength)
+		logger.Infof("starlight&&&start upload by UploadTinyFile %dB", totalLength)
 		return sl.UploadTinyFile(filePath, reader)
 	} else {
-		logger.Infof("starlight---start upload by UploadBigFile %dB", totalLength)
+		logger.Infof("starlight&&&start upload by UploadBigFile %dB", totalLength)
 		return sl.UploadBigFile(filePath, reader, totalLength)
 	}
 }
@@ -689,16 +686,19 @@ func (sl *starlightclient) UploadBigFile(filePath string, reader io.Reader, tota
 			request.Header.Add("bihu-token", sl.token)
 			request.Header.Add("Content-Range", "bytes="+strconv.Itoa(currentOffset)+"-"+strconv.Itoa(currentOffset+length-1)+"/"+strconv.FormatInt(totalLength, 10))
 			//println("bytes:" + request.Header.Get("Content-Range") + " length:" + strconv.Itoa(length))
-			currentOffset += length
 			client := &http.Client{}
 			//处理返回结果
 			response, err := client.Do(request)
+			logger.Infof("starlight***Upload error, bytes=%s, length=%s, n=%d, dataBuffer=%d, pipeBuffer=%d",
+				strconv.Itoa(currentOffset)+"-"+strconv.Itoa(currentOffset+length-1)+"/"+strconv.FormatInt(totalLength, 10),
+				strconv.Itoa(length), n, len(dataBuffer), len(pipeBuffer))
 			defer client.CloseIdleConnections()
 			if err == nil && response.StatusCode/100 != 2 {
 				err = fmt.Errorf("starlight---UploadBigFile bad resp status %s", response.StatusCode)
 			}
 			return response, false, err
 		})
+		currentOffset += length
 		if anyResponse == nil {
 			logger.Errorf("starlight---UploadBigFile response nil Error")
 			return fmt.Errorf("starlight---UploadBigFile response nil")
@@ -722,7 +722,9 @@ func (sl *starlightclient) UploadBigFile(filePath string, reader io.Reader, tota
 			logger.Errorf("starlight---UploadBigFile json parse %s", err.Error())
 			return err
 		}
+
 		if uploadResp.Code != 200 {
+			logger.Errorf("starlight---Upload error, bytes=%s, length=%s", strconv.Itoa(currentOffset)+"-"+strconv.Itoa(currentOffset+length-1)+"/"+strconv.FormatInt(totalLength, 10), strconv.Itoa(length))
 			return fmt.Errorf("starlight---Upload failed, path=%s, Code=%s, Message=%s", filePath, uploadResp.Code, uploadResp.Info)
 		}
 
