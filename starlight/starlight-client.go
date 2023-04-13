@@ -408,7 +408,6 @@ func (sl *starlightclient) FileOperate(opt, from, target, recursive, force strin
 		}
 	}
 	uri.RawQuery = data.Encode()
-
 	anyResponse, _, err := util.Run(15, 150, 4, func() (any, bool, error) {
 		//提交请求
 		request, err := http.NewRequest(http.MethodPost, uri.String(), nil)
@@ -446,11 +445,7 @@ func (sl *starlightclient) FileOperate(opt, from, target, recursive, force strin
 		logger.Errorf("starlight---FileOperate opt=%s target=%s body read error %s", opt, target, err.Error())
 		return false, err
 	}
-	fmt.Println(string(body))
 	var starlightResp StarlightResp
-	if err == nil {
-		return false, err
-	}
 	err = json.Unmarshal((body), &starlightResp)
 	if err != nil {
 		return false, err
@@ -471,7 +466,7 @@ func (sl *starlightclient) CreateDir(path string) (bool, error) {
 
 func (sl *starlightclient) DeleteFile(path string) (bool, error) {
 
-	return sl.FileOperate("rm", "", path, "false", "true")
+	return sl.FileOperate("rm", "", path, "true", "true")
 
 }
 
@@ -565,7 +560,7 @@ func (sl *starlightclient) UploadTinyFile(filePath string, reader io.Reader) err
 	//url := "https://starlight.nscc-gz.cn/api/storage/upload?file=/WORK/pcl_xcx_1/mnt&overwrite=true"
 	//println("uri.string: " + uri.String())
 
-	anyResponse, _, err := util.Run(15, 150, 4, func() (any, bool, error) {
+	_, _, err = util.Run(15, 150, 4, func() (any, bool, error) {
 		//提交请求
 		request, err := http.NewRequest(http.MethodPut, uri.String(), &buf)
 		if err != nil {
@@ -582,33 +577,29 @@ func (sl *starlightclient) UploadTinyFile(filePath string, reader io.Reader) err
 		if err != nil {
 			logger.Errorf("starlight---Upload TinyFile Error %s", err)
 		}
-		return response, false, err
+		if response == nil {
+			logger.Errorf("starlight---Upload TinyFile response nil Error")
+			return nil, false, fmt.Errorf("starlight---response nil")
+		}
+		defer response.Body.Close()
+
+		body, err := io.ReadAll(response.Body)
+		var uploadResp UploadResp
+		if err != nil {
+			return nil, false, err
+		}
+		err = json.Unmarshal((body), &uploadResp)
+		if err != nil {
+			return nil, false, err
+		}
+		if uploadResp.Code != 200 {
+			return nil, false, fmt.Errorf("starlight Upload failed, path=%s, Code=%s, Info=%s", filePath, uploadResp.Code, uploadResp.Info)
+		}
+		return nil, false, err
 	})
-	if anyResponse == nil {
-		logger.Errorf("starlight---Upload TinyFile response nil Error")
-		return fmt.Errorf("starlight---response nil")
-	}
-	if err != nil {
-		logger.Errorf("starlight---Upload TinyFile Error %s", err)
-		return err
-	}
-	response := anyResponse.(*http.Response)
-	defer response.Body.Close()
-
-	body, err := io.ReadAll(response.Body)
-	var uploadResp UploadResp
 	if err != nil {
 		return err
 	}
-	err = json.Unmarshal((body), &uploadResp)
-	if err != nil {
-		return err
-	}
-
-	if uploadResp.Code != 200 {
-		return fmt.Errorf("starlight Upload failed, path=%s, Code=%s, Info=%s", filePath, uploadResp.Code, uploadResp.Info)
-	}
-
 	return nil
 }
 
@@ -666,7 +657,6 @@ func (sl *starlightclient) UploadBigFile(filePath string, reader io.Reader, tota
 
 		data := make(url.Values)
 		data["file"] = []string{filePath}
-		data["overwrite"] = []string{"true"}
 
 		uri, _ := url.Parse(requestUrl)
 		values := uri.Query()
@@ -677,7 +667,7 @@ func (sl *starlightclient) UploadBigFile(filePath string, reader io.Reader, tota
 		}
 		uri.RawQuery = data.Encode()
 
-		anyResponse, _, err := util.Run(15, 150, 4, func() (any, bool, error) {
+		_, _, err = util.Run(15, 150, 4, func() (any, bool, error) {
 			//提交请求
 			request, err := http.NewRequest(http.MethodPut, uri.String(), &buf)
 			if err != nil {
@@ -693,41 +683,40 @@ func (sl *starlightclient) UploadBigFile(filePath string, reader io.Reader, tota
 				strconv.Itoa(currentOffset)+"-"+strconv.Itoa(currentOffset+length-1)+"/"+strconv.FormatInt(totalLength, 10),
 				strconv.Itoa(length), n, len(dataBuffer), len(pipeBuffer))
 			defer client.CloseIdleConnections()
+
 			if err == nil && response.StatusCode/100 != 2 {
 				err = fmt.Errorf("starlight---UploadBigFile bad resp status %s", response.StatusCode)
 			}
-			return response, false, err
+			if err != nil {
+				return nil, false, err
+			}
+			if response == nil {
+				logger.Errorf("starlight---UploadBigFile response nil Error")
+				return nil, false, fmt.Errorf("starlight---UploadBigFile response nil")
+			}
+			defer response.Body.Close()
+
+			body, err := io.ReadAll(response.Body)
+			if err != nil {
+				logger.Errorf("starlight---UploadBigFile ReadAll error %s", err.Error())
+				return nil, false, err
+			}
+			var uploadResp UploadResp
+			err = json.Unmarshal((body), &uploadResp)
+			if err != nil {
+				logger.Errorf("starlight---UploadBigFile json parse %s", err.Error())
+				return nil, false, err
+			}
+			if uploadResp.Code != 200 {
+				logger.Errorf("starlight---Upload error, bytes=%s, length=%s", strconv.Itoa(currentOffset)+"-"+strconv.Itoa(currentOffset+length-1)+"/"+strconv.FormatInt(totalLength, 10), strconv.Itoa(length))
+				return nil, false, fmt.Errorf("starlight---Upload failed, path=%s, Code=%s, Message=%s", filePath, uploadResp.Code, uploadResp.Info)
+			}
+			return nil, false, err
 		})
+		if err != nil {
+			return err
+		}
 		currentOffset += length
-		if anyResponse == nil {
-			logger.Errorf("starlight---UploadBigFile response nil Error")
-			return fmt.Errorf("starlight---UploadBigFile response nil")
-		}
-		if err != nil {
-			logger.Errorf("starlight---UploadBigFile Error %s", err)
-			return err
-		}
-		response := anyResponse.(*http.Response)
-		defer response.Body.Close()
-
-		body, err := io.ReadAll(response.Body)
-		if err != nil {
-			logger.Errorf("starlight---UploadBigFile ReadAll error %s", err.Error())
-			return err
-
-		}
-		var uploadResp UploadResp
-		err = json.Unmarshal((body), &uploadResp)
-		if err != nil {
-			logger.Errorf("starlight---UploadBigFile json parse %s", err.Error())
-			return err
-		}
-
-		if uploadResp.Code != 200 {
-			logger.Errorf("starlight---Upload error, bytes=%s, length=%s", strconv.Itoa(currentOffset)+"-"+strconv.Itoa(currentOffset+length-1)+"/"+strconv.FormatInt(totalLength, 10), strconv.Itoa(length))
-			return fmt.Errorf("starlight---Upload failed, path=%s, Code=%s, Message=%s", filePath, uploadResp.Code, uploadResp.Info)
-		}
-
 	}
 	return nil
 }
