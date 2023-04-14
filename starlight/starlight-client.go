@@ -571,16 +571,17 @@ func (sl *starlightclient) UploadTinyFile(filePath string, reader io.Reader) err
 		client := &http.Client{}
 		defer client.CloseIdleConnections()
 		response, err := client.Do(request)
+		if response == nil {
+			logger.Errorf("starlight---Upload TinyFile response nil Error")
+			return nil, false, fmt.Errorf("starlight---response nil")
+		}
 		if err == nil && response.StatusCode/100 != 2 {
 			err = fmt.Errorf("starlight---Upload bad resp status %s", response.StatusCode)
 		}
 		if err != nil {
 			logger.Errorf("starlight---Upload TinyFile Error %s", err)
 		}
-		if response == nil {
-			logger.Errorf("starlight---Upload TinyFile response nil Error")
-			return nil, false, fmt.Errorf("starlight---response nil")
-		}
+
 		defer response.Body.Close()
 
 		body, err := io.ReadAll(response.Body)
@@ -597,10 +598,7 @@ func (sl *starlightclient) UploadTinyFile(filePath string, reader io.Reader) err
 		}
 		return nil, false, err
 	})
-	if err != nil {
-		return err
-	}
-	return nil
+	return err
 }
 
 func (sl *starlightclient) UploadBigFile(filePath string, reader io.Reader, totalLength int64) error {
@@ -679,9 +677,13 @@ func (sl *starlightclient) UploadBigFile(filePath string, reader io.Reader, tota
 			client := &http.Client{}
 			//处理返回结果
 			response, err := client.Do(request)
-			logger.Infof("starlight***Upload error, bytes=%s, length=%s, n=%d, dataBuffer=%d, pipeBuffer=%d",
-				strconv.Itoa(currentOffset)+"-"+strconv.Itoa(currentOffset+length-1)+"/"+strconv.FormatInt(totalLength, 10),
-				strconv.Itoa(length), n, len(dataBuffer), len(pipeBuffer))
+			if response == nil {
+				logger.Errorf("starlight---UploadBigFile response nil Error")
+				return nil, false, fmt.Errorf("starlight---UploadBigFile response nil")
+			}
+			//logger.Infof("starlight***Upload error, bytes=%s, length=%s, n=%d, dataBuffer=%d, pipeBuffer=%d",
+			//	strconv.Itoa(currentOffset)+"-"+strconv.Itoa(currentOffset+length-1)+"/"+strconv.FormatInt(totalLength, 10),
+			//	strconv.Itoa(length), n, len(dataBuffer), len(pipeBuffer))
 			defer client.CloseIdleConnections()
 
 			if err == nil && response.StatusCode/100 != 2 {
@@ -689,10 +691,6 @@ func (sl *starlightclient) UploadBigFile(filePath string, reader io.Reader, tota
 			}
 			if err != nil {
 				return nil, false, err
-			}
-			if response == nil {
-				logger.Errorf("starlight---UploadBigFile response nil Error")
-				return nil, false, fmt.Errorf("starlight---UploadBigFile response nil")
 			}
 			defer response.Body.Close()
 
@@ -708,7 +706,9 @@ func (sl *starlightclient) UploadBigFile(filePath string, reader io.Reader, tota
 				return nil, false, err
 			}
 			if uploadResp.Code != 200 {
-				logger.Errorf("starlight---Upload error, bytes=%s, length=%s", strconv.Itoa(currentOffset)+"-"+strconv.Itoa(currentOffset+length-1)+"/"+strconv.FormatInt(totalLength, 10), strconv.Itoa(length))
+				logger.Errorf("starlight***Upload error, bytes=%s, length=%s, n=%d, dataBuffer=%d, pipeBuffer=%d",
+					strconv.Itoa(currentOffset)+"-"+strconv.Itoa(currentOffset+length-1)+"/"+strconv.FormatInt(totalLength, 10),
+					strconv.Itoa(length), n, len(dataBuffer), len(pipeBuffer))
 				return nil, false, fmt.Errorf("starlight---Upload failed, path=%s, Code=%s, Message=%s", filePath, uploadResp.Code, uploadResp.Info)
 			}
 			return nil, false, err
