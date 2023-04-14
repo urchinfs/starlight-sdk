@@ -162,14 +162,14 @@ func (sl *starlightclient) SetToken() error {
 	}
 	req.Header.Add("Content-Type", "application/json")
 
-	res, err := client.Do(req)
+	response, err := client.Do(req)
 	if err != nil {
 		logger.Errorf("starlight---SetToken: " + err.Error())
 		return err
 	}
-	defer res.Body.Close()
+	defer response.Body.Close()
 
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := ioutil.ReadAll(response.Body)
 	var starlightResp StarlightResp
 	if err != nil {
 		return err
@@ -215,7 +215,7 @@ func (sl *starlightclient) GetFileList(path string, showHidden bool) ([]FileMeta
 	}
 	uri.RawQuery = data.Encode()
 
-	anyResponse, _, err := util.Run(15, 150, 4, func() (any, bool, error) {
+	anyResponse, _, err := util.Run(15, 100, 4, func() (any, bool, error) {
 		//提交请求
 		request, err := http.NewRequest(http.MethodGet, uri.String(), nil)
 		if err != nil {
@@ -227,8 +227,11 @@ func (sl *starlightclient) GetFileList(path string, showHidden bool) ([]FileMeta
 		client := &http.Client{}
 		//处理返回结果
 		response, err := client.Do(request)
+		if err != nil {
+			return nil, false, err
+		}
 		defer client.CloseIdleConnections()
-		if err == nil && response.StatusCode/100 != 2 {
+		if response.StatusCode/100 != 2 {
 			err = fmt.Errorf("starlight---GetFileList path=%s request responseCode %s", path, response.StatusCode)
 		}
 		return response, false, err
@@ -318,7 +321,7 @@ func (sl *starlightclient) GetFileMeta(file string) (*FileMeta, error) {
 	}
 	uri.RawQuery = data.Encode()
 
-	anyResponse, _, err := util.Run(15, 150, 4, func() (any, bool, error) {
+	anyResponse, _, err := util.Run(15, 100, 4, func() (any, bool, error) {
 		//提交请求
 		request, err := http.NewRequest(http.MethodGet, uri.String(), nil)
 		if err != nil {
@@ -330,8 +333,11 @@ func (sl *starlightclient) GetFileMeta(file string) (*FileMeta, error) {
 		client := &http.Client{}
 		//处理返回结果
 		response, err := client.Do(request)
+		if err != nil {
+			return nil, false, err
+		}
 		defer client.CloseIdleConnections()
-		if err == nil && response.StatusCode/100 != 2 {
+		if response.StatusCode/100 != 2 {
 			err = fmt.Errorf("starlight---GetFileMeta file=%s request responseCode %s", file, response.StatusCode)
 		}
 		return response, false, err
@@ -408,7 +414,7 @@ func (sl *starlightclient) FileOperate(opt, from, target, recursive, force strin
 		}
 	}
 	uri.RawQuery = data.Encode()
-	anyResponse, _, err := util.Run(15, 150, 4, func() (any, bool, error) {
+	anyResponse, _, err := util.Run(15, 100, 4, func() (any, bool, error) {
 		//提交请求
 		request, err := http.NewRequest(http.MethodPost, uri.String(), nil)
 		if err != nil {
@@ -494,7 +500,7 @@ func (sl *starlightclient) Download(path string) (io.ReadCloser, error) {
 	uri.RawQuery = data.Encode()
 
 	//处理返回结果
-	anyResponse, _, err := util.Run(15, 150, 4, func() (any, bool, error) {
+	anyResponse, _, err := util.Run(15, 100, 4, func() (any, bool, error) {
 		//提交请求
 		request, err := http.NewRequest(http.MethodGet, uri.String(), nil)
 		if err != nil {
@@ -560,7 +566,7 @@ func (sl *starlightclient) UploadTinyFile(filePath string, reader io.Reader) err
 	//url := "https://starlight.nscc-gz.cn/api/storage/upload?file=/WORK/pcl_xcx_1/mnt&overwrite=true"
 	//println("uri.string: " + uri.String())
 
-	_, _, err = util.Run(15, 150, 4, func() (any, bool, error) {
+	_, _, err = util.Run(15, 100, 4, func() (any, bool, error) {
 		//提交请求
 		request, err := http.NewRequest(http.MethodPut, uri.String(), &buf)
 		if err != nil {
@@ -571,19 +577,17 @@ func (sl *starlightclient) UploadTinyFile(filePath string, reader io.Reader) err
 		client := &http.Client{}
 		defer client.CloseIdleConnections()
 		response, err := client.Do(request)
+		if err != nil {
+			logger.Errorf("starlight---Upload TinyFile Error %s", err)
+		}
 		if response == nil {
 			logger.Errorf("starlight---Upload TinyFile response nil Error")
 			return nil, false, fmt.Errorf("starlight---response nil")
 		}
-		if err == nil && response.StatusCode/100 != 2 {
+		if response.StatusCode/100 != 2 {
 			err = fmt.Errorf("starlight---Upload bad resp status %s", response.StatusCode)
 		}
-		if err != nil {
-			logger.Errorf("starlight---Upload TinyFile Error %s", err)
-		}
-
 		defer response.Body.Close()
-
 		body, err := io.ReadAll(response.Body)
 		var uploadResp UploadResp
 		if err != nil {
@@ -665,7 +669,7 @@ func (sl *starlightclient) UploadBigFile(filePath string, reader io.Reader, tota
 		}
 		uri.RawQuery = data.Encode()
 
-		_, _, err = util.Run(15, 150, 4, func() (any, bool, error) {
+		_, _, err = util.Run(15, 100, 4, func() (any, bool, error) {
 			//提交请求
 			request, err := http.NewRequest(http.MethodPut, uri.String(), &buf)
 			if err != nil {
@@ -677,6 +681,9 @@ func (sl *starlightclient) UploadBigFile(filePath string, reader io.Reader, tota
 			client := &http.Client{}
 			//处理返回结果
 			response, err := client.Do(request)
+			if err != nil {
+				return nil, false, err
+			}
 			if response == nil {
 				logger.Errorf("starlight---UploadBigFile response nil Error")
 				return nil, false, fmt.Errorf("starlight---UploadBigFile response nil")
@@ -685,12 +692,8 @@ func (sl *starlightclient) UploadBigFile(filePath string, reader io.Reader, tota
 			//	strconv.Itoa(currentOffset)+"-"+strconv.Itoa(currentOffset+length-1)+"/"+strconv.FormatInt(totalLength, 10),
 			//	strconv.Itoa(length), n, len(dataBuffer), len(pipeBuffer))
 			defer client.CloseIdleConnections()
-
-			if err == nil && response.StatusCode/100 != 2 {
+			if response.StatusCode/100 != 2 {
 				err = fmt.Errorf("starlight---UploadBigFile bad resp status %s", response.StatusCode)
-			}
-			if err != nil {
-				return nil, false, err
 			}
 			defer response.Body.Close()
 
