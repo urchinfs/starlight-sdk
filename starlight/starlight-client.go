@@ -215,7 +215,7 @@ func (sl *starlightclient) GetFileList(path string, showHidden bool) ([]FileMeta
 	}
 	uri.RawQuery = data.Encode()
 
-	anyResponse, _, err := util.Run(15, 100, 4, func() (any, bool, error) {
+	anyResponse, _, err := util.Run(15, 100, 4, "GetFileList", func() (any, bool, error) {
 		//提交请求
 		request, err := http.NewRequest(http.MethodGet, uri.String(), nil)
 		if err != nil {
@@ -321,7 +321,7 @@ func (sl *starlightclient) GetFileMeta(file string) (*FileMeta, error) {
 	}
 	uri.RawQuery = data.Encode()
 
-	anyResponse, _, err := util.Run(15, 100, 4, func() (any, bool, error) {
+	anyResponse, _, err := util.Run(15, 100, 4, "GetFileMeta", func() (any, bool, error) {
 		//提交请求
 		request, err := http.NewRequest(http.MethodGet, uri.String(), nil)
 		if err != nil {
@@ -414,7 +414,7 @@ func (sl *starlightclient) FileOperate(opt, from, target, recursive, force strin
 		}
 	}
 	uri.RawQuery = data.Encode()
-	anyResponse, _, err := util.Run(15, 100, 4, func() (any, bool, error) {
+	anyResponse, _, err := util.Run(15, 100, 4, "FileOperate-"+opt, func() (any, bool, error) {
 		//提交请求
 		request, err := http.NewRequest(http.MethodPost, uri.String(), nil)
 		if err != nil {
@@ -500,7 +500,7 @@ func (sl *starlightclient) Download(path string) (io.ReadCloser, error) {
 	uri.RawQuery = data.Encode()
 
 	//处理返回结果
-	anyResponse, _, err := util.Run(15, 100, 4, func() (any, bool, error) {
+	anyResponse, _, err := util.Run(15, 100, 4, "Download", func() (any, bool, error) {
 		//提交请求
 		request, err := http.NewRequest(http.MethodGet, uri.String(), nil)
 		if err != nil {
@@ -566,7 +566,7 @@ func (sl *starlightclient) UploadTinyFile(filePath string, reader io.Reader) err
 	//url := "https://starlight.nscc-gz.cn/api/storage/upload?file=/WORK/pcl_xcx_1/mnt&overwrite=true"
 	//println("uri.string: " + uri.String())
 
-	_, _, err = util.Run(15, 100, 4, func() (any, bool, error) {
+	_, _, err = util.Run(15, 100, 4, "UploadTinyFile", func() (any, bool, error) {
 		//提交请求
 		request, err := http.NewRequest(http.MethodPut, uri.String(), &buf)
 		if err != nil {
@@ -669,7 +669,7 @@ func (sl *starlightclient) UploadBigFile(filePath string, reader io.Reader, tota
 		}
 		uri.RawQuery = data.Encode()
 
-		_, _, err = util.Run(15, 100, 4, func() (any, bool, error) {
+		_, _, err = util.Run(15, 100, 4, "UploadBigFile", func() (any, bool, error) {
 			//提交请求
 			request, err := http.NewRequest(http.MethodPut, uri.String(), &buf)
 			if err != nil {
@@ -682,6 +682,7 @@ func (sl *starlightclient) UploadBigFile(filePath string, reader io.Reader, tota
 			//处理返回结果
 			response, err := client.Do(request)
 			if err != nil {
+				logger.Errorf("starlight---UploadBigFile error=%s", err.Error())
 				return nil, false, err
 			}
 			if response == nil {

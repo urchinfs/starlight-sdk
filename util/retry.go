@@ -8,6 +8,7 @@ import (
 func Run(initBackoff float64,
 	maxBackoff float64,
 	maxAttempts int,
+	flag string,
 	f func() (data any, cancel bool, err error)) (any, bool, error) {
 	var (
 		res    any
@@ -17,7 +18,7 @@ func Run(initBackoff float64,
 	for i := 0; i < maxAttempts; i++ {
 		if i > 0 {
 			time.Sleep(RandBackoffSeconds(initBackoff, maxBackoff, 2.0, i))
-			logger.Infof("starlight retry %s", i)
+			logger.Infof("starlight method=%s retry %s", flag, i)
 		}
 
 		res, cancel, cause = f()
