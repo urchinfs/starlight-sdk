@@ -8,10 +8,8 @@ import (
 	"github.com/urchinfs/starlight-sdk/util"
 	"io"
 	"io/ioutil"
-	"mime/multipart"
 	"net/http"
 	"net/url"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -615,8 +613,6 @@ func (sl *starlightclient) UploadBigFile(filePath string, reader io.Reader, tota
 		}
 	}
 
-	fileName := filepath.Base(filePath)
-
 	currentOffset := 0
 	for {
 		n := 0
@@ -641,37 +637,33 @@ func (sl *starlightclient) UploadBigFile(filePath string, reader io.Reader, tota
 			break
 		}
 
-		var buf = bytes.Buffer{}
-		buf.Write(dataBuffer[:n])
-		//tee := io.TeeReader(reader, &buf)
-		//io.ReadAll(tee)
+		length := n
 
-		bodyBuf := &bytes.Buffer{}
-		bodyWriter := multipart.NewWriter(bodyBuf)
-		fileWriter, err := bodyWriter.CreateFormFile("file", fileName)
-		length, err := fileWriter.Write(dataBuffer[:n])
-		if err != nil {
-			return err
-		}
-		bodyWriter.Close()
-		//生成要访问的url
-		requestUrl := sl.apiEnv + "/storage/upload"
+		_, _, err = util.Run(1, 3, 4, "UploadBigFile", func() (any, bool, error) {
+			var buf = bytes.Buffer{}
+			buf.Write(dataBuffer[:n])
+			//tee := io.TeeReader(reader, &buf)
+			//io.ReadAll(tee)
 
-		data := make(url.Values)
-		data["file"] = []string{filePath}
+			//生成要访问的url
+			requestUrl := sl.apiEnv + "/storage/upload"
 
-		uri, _ := url.Parse(requestUrl)
-		values := uri.Query()
-		if values != nil {
-			for k, v := range values {
-				data[k] = v
+			data := make(url.Values)
+			data["file"] = []string{filePath}
+			data["overwrite"] = []string{"true"}
+
+			uri, _ := url.Parse(requestUrl)
+			values := uri.Query()
+			if values != nil {
+				for k, v := range values {
+					data[k] = v
+				}
 			}
-		}
-		uri.RawQuery = data.Encode()
-
-		_, _, err = util.Run(15, 100, 4, "UploadBigFile", func() (any, bool, error) {
+			uri.RawQuery = data.Encode()
 			//提交请求
+			//println("buf.len before", buf.Len())
 			request, err := http.NewRequest(http.MethodPut, uri.String(), &buf)
+			//println("buf.len after", buf.Len())
 			if err != nil {
 				return nil, false, err
 			}
@@ -683,6 +675,7 @@ func (sl *starlightclient) UploadBigFile(filePath string, reader io.Reader, tota
 			response, err := client.Do(request)
 			if err != nil {
 				logger.Errorf("starlight---UploadBigFile error=%s", err.Error())
+				logger.Errorf("starlight---UploadBifFile response code=%s status=%s", response.StatusCode, response.Status)
 				return nil, false, err
 			}
 			if response == nil {
@@ -710,7 +703,7 @@ func (sl *starlightclient) UploadBigFile(filePath string, reader io.Reader, tota
 				return nil, false, err
 			}
 			if uploadResp.Code != 200 {
-				logger.Errorf("starlight***Upload error, bytes=%s, length=%s, n=%d, dataBuffer=%d, pipeBuffer=%d",
+				logger.Errorf("starlight---Upload code=%s error=%s, bytes=%s, length=%s, n=%d, dataBuffer=%d, pipeBuffer=%d", uploadResp.Code, uploadResp.Info,
 					strconv.Itoa(currentOffset)+"-"+strconv.Itoa(currentOffset+length-1)+"/"+strconv.FormatInt(totalLength, 10),
 					strconv.Itoa(length), n, len(dataBuffer), len(pipeBuffer))
 				return nil, false, fmt.Errorf("starlight---Upload failed, path=%s, Code=%s, Message=%s", filePath, uploadResp.Code, uploadResp.Info)
