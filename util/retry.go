@@ -2,6 +2,7 @@ package util
 
 import (
 	logger "github.com/urchinfs/starlight-sdk/dflog"
+	"net/http"
 	"time"
 )
 
@@ -28,4 +29,30 @@ func Run(initBackoff float64,
 	}
 
 	return res, cancel, cause
+}
+
+func LoopDoRequest(f func() (response *http.Response, err error)) (*http.Response, error) {
+	response, err := f()
+	//处理请求频次限制问题
+	retryCount := 0
+	for {
+		if err == nil {
+			break
+		}
+		retryCount += 1
+		logger.Errorf("starlight---client do request error=%s retryCount=%d", err.Error(), retryCount)
+		if retryCount <= 20 {
+			time.Sleep(time.Duration(3) * time.Second)
+		} else if retryCount <= 360+20 {
+			time.Sleep(time.Duration(10) * time.Second)
+		} else if retryCount <= 24*120+360+20 {
+			time.Sleep(time.Duration(30) * time.Second)
+		} else if retryCount <= 7*24*60+24*120+360+20 {
+			time.Sleep(time.Duration(60) * time.Second)
+		} else {
+			break
+		}
+		response, err = f()
+	}
+	return response, err
 }

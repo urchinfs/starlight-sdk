@@ -147,20 +147,46 @@ func (sl *starlightclient) SetToken() error {
 	if valid {
 		return nil
 	}
-	url := sl.apiEnv + "/keystone/short_term_token/name"
-	method := "POST"
-	payload := strings.NewReader("{\"username\": \"" + sl.username + "\",\"password\": \"" + sl.password + "\"}")
 
-	client := &http.Client{}
-	req, err := http.NewRequest(method, url, payload)
+	anyResponse, _, err := util.Run(15, 100, 4, "GetFileList", func() (any, bool, error) {
+
+		url := sl.apiEnv + "/keystone/short_term_token/name"
+		method := "POST"
+		payload := strings.NewReader("{\"username\": \"" + sl.username + "\",\"password\": \"" + sl.password + "\"}")
+
+		client := &http.Client{}
+		req, err := http.NewRequest(method, url, payload)
+
+		if err != nil {
+			logger.Errorf("starlight---SetToken: " + err.Error())
+			return nil, false, err
+		}
+		req.Header.Add("Content-Type", "application/json")
+
+		response, err := client.Do(req)
+
+		if err != nil {
+			logger.Errorf("starlight---SetToken: " + err.Error())
+			return nil, false, err
+		}
+
+		if response == nil {
+			logger.Errorf("starlight---SetToken response nil error")
+			return nil, false, fmt.Errorf("starlight---response nil")
+		}
+
+		if response.StatusCode/100 != 2 {
+			err = fmt.Errorf("starlight---SetToken request responseCode %s", response.StatusCode)
+		}
+		return response, false, err
+	})
 
 	if err != nil {
-		logger.Errorf("starlight---SetToken: " + err.Error())
+		logger.Errorf("starlight---SetToken request error %s", err.Error())
 		return err
 	}
-	req.Header.Add("Content-Type", "application/json")
+	response := anyResponse.(*http.Response)
 
-	response, err := client.Do(req)
 	if err != nil {
 		logger.Errorf("starlight---SetToken: " + err.Error())
 		return err
@@ -183,61 +209,64 @@ func (sl *starlightclient) SetToken() error {
 	sl.token = starlightResp.Spec
 	sl.tokenCreateAt = time.Now()
 	//println("token:" + sl.token)
-	return fmt.Errorf("starlight---SetToken get token failed")
+	return nil
 
 }
 
 func (sl *starlightclient) GetFileList(path string, showHidden bool) ([]FileMeta, error) {
 	err := sl.SetToken()
 	if err != nil {
-		time.Sleep(time.Duration(15) * time.Second)
-		err = sl.SetToken()
-		if err != nil {
-			return nil, err
-		}
+		logger.Errorf("starlight---GetFileList file=%s setToken error=%s", path, err.Error())
+		return nil, err
 	}
 	if path == "" {
 		path = "/" + sl.lustreType + "/" + sl.username
 	}
 
-	requestUrl := sl.apiEnv + "/storage/dir_info"
-	data := make(url.Values)
-	data["dir"] = []string{path}
-	data["show_hidden"] = []string{strconv.FormatBool(showHidden)}
-	uri, _ := url.Parse(requestUrl)
-	values := uri.Query()
-	if values != nil {
-		for k, v := range values {
-			data[k] = v
-		}
-	}
-	uri.RawQuery = data.Encode()
-
 	anyResponse, _, err := util.Run(15, 100, 4, "GetFileList", func() (any, bool, error) {
-		//提交请求
-		request, err := http.NewRequest(http.MethodGet, uri.String(), nil)
-		if err != nil {
-			logger.Errorf("starlight---GetFileList request error " + err.Error())
-			return nil, false, err
-		}
-		request.Header.Add("bihu-token", sl.token)
 
-		client := &http.Client{}
-		//处理返回结果
-		response, err := client.Do(request)
+		response, err := util.LoopDoRequest(func() (*http.Response, error) {
+			requestUrl := sl.apiEnv + "/storage/dir_info"
+			data := make(url.Values)
+			data["dir"] = []string{path}
+			data["show_hidden"] = []string{strconv.FormatBool(showHidden)}
+			uri, _ := url.Parse(requestUrl)
+			values := uri.Query()
+			if values != nil {
+				for k, v := range values {
+					data[k] = v
+				}
+			}
+			uri.RawQuery = data.Encode()
+			//提交请求
+			request, err := http.NewRequest(http.MethodGet, uri.String(), nil)
+			if err != nil {
+				logger.Errorf("starlight---GetFileList request error " + err.Error())
+				return nil, err
+			}
+			request.Header.Add("bihu-token", sl.token)
+
+			client := &http.Client{}
+			defer client.CloseIdleConnections()
+			//处理返回结果
+			return client.Do(request)
+		})
+
 		if err != nil {
 			return nil, false, err
 		}
-		defer client.CloseIdleConnections()
+
+		if response == nil {
+			logger.Errorf("starlight---GetFileList response nil error")
+			return nil, false, fmt.Errorf("starlight---response nil")
+		}
+
 		if response.StatusCode/100 != 2 {
 			err = fmt.Errorf("starlight---GetFileList path=%s request responseCode %s", path, response.StatusCode)
 		}
 		return response, false, err
 	})
-	if anyResponse == nil {
-		logger.Errorf("starlight---GetFileList response nil error")
-		return nil, fmt.Errorf("starlight---response nil")
-	}
+
 	if err != nil {
 		logger.Errorf("starlight---GetFileMeta path=%s request error %s", path, err.Error())
 		return nil, err
@@ -299,51 +328,53 @@ func (sl *starlightclient) GetFileListRecursive(path string, showHidden bool, ma
 func (sl *starlightclient) GetFileMeta(file string) (*FileMeta, error) {
 	err := sl.SetToken()
 	if err != nil {
-		time.Sleep(time.Duration(15) * time.Second)
-		err = sl.SetToken()
-		if err != nil {
-			logger.Errorf("starlight---GetFileMeta file=%s setToken error=%s", file, err.Error())
-			return nil, err
-		}
+		logger.Errorf("starlight---GetFileMeta file=%s setToken error=%s", file, err.Error())
+		return nil, err
 	}
-
-	requestUrl := sl.apiEnv + "/storage/state"
-	data := make(url.Values)
-	data["file"] = []string{file}
-	uri, _ := url.Parse(requestUrl)
-	values := uri.Query()
-	if values != nil {
-		for k, v := range values {
-			data[k] = v
-		}
-	}
-	uri.RawQuery = data.Encode()
 
 	anyResponse, _, err := util.Run(15, 100, 4, "GetFileMeta", func() (any, bool, error) {
-		//提交请求
-		request, err := http.NewRequest(http.MethodGet, uri.String(), nil)
-		if err != nil {
-			logger.Errorf("starlight---GetFileMeta file=%s request error %s", file, err.Error())
-			return nil, false, err
-		}
-		request.Header.Add("bihu-token", sl.token)
 
-		client := &http.Client{}
-		//处理返回结果
-		response, err := client.Do(request)
+		response, err := util.LoopDoRequest(func() (*http.Response, error) {
+			requestUrl := sl.apiEnv + "/storage/state"
+			data := make(url.Values)
+			data["file"] = []string{file}
+			uri, _ := url.Parse(requestUrl)
+			values := uri.Query()
+			if values != nil {
+				for k, v := range values {
+					data[k] = v
+				}
+			}
+			uri.RawQuery = data.Encode()
+			//提交请求
+			request, err := http.NewRequest(http.MethodGet, uri.String(), nil)
+			if err != nil {
+				logger.Errorf("starlight---GetFileMeta file=%s request error %s", file, err.Error())
+				return nil, err
+			}
+			request.Header.Add("bihu-token", sl.token)
+
+			client := &http.Client{}
+			defer client.CloseIdleConnections()
+			//处理返回结果
+			return client.Do(request)
+		})
+
 		if err != nil {
 			return nil, false, err
 		}
-		defer client.CloseIdleConnections()
+
+		if response == nil {
+			logger.Errorf("starlight---FileOperate response nil Error")
+			return nil, false, fmt.Errorf("starlight---response nil")
+		}
+
 		if response.StatusCode/100 != 2 {
 			err = fmt.Errorf("starlight---GetFileMeta file=%s request responseCode %s", file, response.StatusCode)
 		}
 		return response, false, err
 	})
-	if anyResponse == nil {
-		logger.Errorf("starlight---GetFileMeta response nil error")
-		return nil, fmt.Errorf("starlight---response nil")
-	}
+
 	if err != nil {
 		logger.Errorf("starlight---GetFileMeta file=%s request error %s", file, err.Error())
 		return nil, err
@@ -389,11 +420,7 @@ func (sl *starlightclient) FileExist(file string) (bool, error) {
 func (sl *starlightclient) FileOperate(opt, from, target, recursive, force string) (bool, error) {
 	err := sl.SetToken()
 	if err != nil {
-		time.Sleep(time.Duration(15) * time.Second)
-		err = sl.SetToken()
-		if err != nil {
-			return false, err
-		}
+		return false, err
 	}
 
 	requestUrl := sl.apiEnv + "/storage/operation"
@@ -413,27 +440,35 @@ func (sl *starlightclient) FileOperate(opt, from, target, recursive, force strin
 	}
 	uri.RawQuery = data.Encode()
 	anyResponse, _, err := util.Run(15, 100, 4, "FileOperate-"+opt, func() (any, bool, error) {
-		//提交请求
-		request, err := http.NewRequest(http.MethodPost, uri.String(), nil)
+		response, err := util.LoopDoRequest(func() (*http.Response, error) {
+			//提交请求
+			request, err := http.NewRequest(http.MethodPost, uri.String(), nil)
+			if err != nil {
+				logger.Errorf("starlight---FileOperate opt=%s target=%s request error %s", opt, target, err.Error())
+				return nil, err
+			}
+			request.Header.Add("bihu-token", sl.token)
+
+			client := &http.Client{}
+			defer client.CloseIdleConnections()
+			//处理返回结果
+			return client.Do(request)
+		})
 		if err != nil {
-			logger.Errorf("starlight---FileOperate opt=%s target=%s request error %s", opt, target, err.Error())
 			return nil, false, err
 		}
-		request.Header.Add("bihu-token", sl.token)
 
-		client := &http.Client{}
-		//处理返回结果
-		response, err := client.Do(request)
-		defer client.CloseIdleConnections()
-		if err == nil && response.StatusCode/100 != 2 {
+		if response == nil {
+			logger.Errorf("starlight---FileOperate response nil Error")
+			return nil, false, fmt.Errorf("starlight---response nil")
+		}
+
+		if response.StatusCode/100 != 2 {
 			err = fmt.Errorf("starlight---FileOperate opt=%s bad resp status %s", opt, response.StatusCode)
 		}
 		return response, false, err
 	})
-	if anyResponse == nil {
-		logger.Errorf("starlight---FileOperate response nil Error")
-		return false, fmt.Errorf("starlight---response nil")
-	}
+
 	if err != nil {
 		logger.Errorf("starlight---FileOperate Error %s", err)
 		return false, err
@@ -477,46 +512,49 @@ func (sl *starlightclient) DeleteFile(path string) (bool, error) {
 func (sl *starlightclient) Download(path string) (io.ReadCloser, error) {
 	err := sl.SetToken()
 	if err != nil {
-		time.Sleep(time.Duration(15) * time.Second)
-		err = sl.SetToken()
-		if err != nil {
-			return nil, err
-		}
+		return nil, err
 	}
-
-	//生成要访问的url
-	requestUrl := sl.apiEnv + "/storage/download"
-	data := make(url.Values)
-	data["file"] = []string{path}
-	uri, _ := url.Parse(requestUrl)
-	values := uri.Query()
-	if values != nil {
-		for k, v := range values {
-			data[k] = v
-		}
-	}
-	uri.RawQuery = data.Encode()
 
 	//处理返回结果
 	anyResponse, _, err := util.Run(15, 100, 4, "Download", func() (any, bool, error) {
-		//提交请求
-		request, err := http.NewRequest(http.MethodGet, uri.String(), nil)
+		response, err := util.LoopDoRequest(func() (*http.Response, error) {
+			//生成要访问的url
+			requestUrl := sl.apiEnv + "/storage/download"
+			data := make(url.Values)
+			data["file"] = []string{path}
+			uri, _ := url.Parse(requestUrl)
+			values := uri.Query()
+			if values != nil {
+				for k, v := range values {
+					data[k] = v
+				}
+			}
+			uri.RawQuery = data.Encode()
+			//提交请求
+			request, err := http.NewRequest(http.MethodGet, uri.String(), nil)
+			if err != nil {
+				return nil, err
+			}
+			request.Header.Add("bihu-token", sl.token)
+			client := &http.Client{}
+			defer client.CloseIdleConnections()
+			return client.Do(request)
+		})
 		if err != nil {
 			return nil, false, err
 		}
-		request.Header.Add("bihu-token", sl.token)
-		client := &http.Client{}
-		response, err := client.Do(request)
-		defer client.CloseIdleConnections()
-		if err == nil && response.StatusCode/100 != 2 {
+
+		if response == nil {
+			logger.Errorf("starlight---Download response nil Error")
+			return nil, false, fmt.Errorf("starlight---response nil")
+		}
+
+		if response.StatusCode/100 != 2 {
 			err = fmt.Errorf("starlight---Download bad resp status %s", response.StatusCode)
 		}
 		return response, false, err
 	})
-	if anyResponse == nil {
-		logger.Errorf("starlight---Download response nil Error")
-		return nil, fmt.Errorf("starlight---response nil")
-	}
+
 	if err != nil {
 		logger.Errorf("starlight---Download Error %s", err)
 		return nil, err
@@ -539,42 +577,40 @@ func (sl *starlightclient) Upload(filePath string, reader io.Reader, totalLength
 func (sl *starlightclient) UploadTinyFile(filePath string, reader io.Reader) error {
 	err := sl.SetToken()
 	if err != nil {
-		time.Sleep(time.Duration(15) * time.Second)
-		err = sl.SetToken()
-
+		return err
 	}
-
-	var buf = bytes.Buffer{}
-	tee := io.TeeReader(reader, &buf)
-	io.ReadAll(tee)
-	//生成要访问的url
-	requestUrl := sl.apiEnv + "/storage/upload"
-	data := make(url.Values)
-	data["file"] = []string{filePath}
-	data["overwrite"] = []string{"true"}
-	uri, _ := url.Parse(requestUrl)
-	values := uri.Query()
-	if values != nil {
-		for k, v := range values {
-			data[k] = v
-		}
-	}
-	uri.RawQuery = data.Encode()
-	//payload := strings.NewReader(`hello world`)
-	//url := "https://starlight.nscc-gz.cn/api/storage/upload?file=/WORK/pcl_xcx_1/mnt&overwrite=true"
-	//println("uri.string: " + uri.String())
 
 	_, _, err = util.Run(15, 100, 4, "UploadTinyFile", func() (any, bool, error) {
-		//提交请求
-		request, err := http.NewRequest(http.MethodPut, uri.String(), &buf)
-		if err != nil {
-			return nil, false, err
-		}
-		request.Header.Add("bihu-token", sl.token)
-		request.Header.Add("Content-Type", "text/plain")
-		client := &http.Client{}
-		defer client.CloseIdleConnections()
-		response, err := client.Do(request)
+
+		response, err := util.LoopDoRequest(func() (*http.Response, error) {
+			var buf = bytes.Buffer{}
+			tee := io.TeeReader(reader, &buf)
+			io.ReadAll(tee)
+			//生成要访问的url
+			requestUrl := sl.apiEnv + "/storage/upload"
+			data := make(url.Values)
+			data["file"] = []string{filePath}
+			data["overwrite"] = []string{"true"}
+			uri, _ := url.Parse(requestUrl)
+			values := uri.Query()
+			if values != nil {
+				for k, v := range values {
+					data[k] = v
+				}
+			}
+			uri.RawQuery = data.Encode()
+			//提交请求
+			request, err := http.NewRequest(http.MethodPut, uri.String(), &buf)
+			if err != nil {
+				return nil, err
+			}
+			request.Header.Add("bihu-token", sl.token)
+			request.Header.Add("Content-Type", "text/plain")
+			client := &http.Client{}
+			defer client.CloseIdleConnections()
+			return client.Do(request)
+		})
+
 		if err != nil {
 			logger.Errorf("starlight---Upload TinyFile Error %s", err)
 		}
@@ -606,11 +642,7 @@ func (sl *starlightclient) UploadTinyFile(filePath string, reader io.Reader) err
 func (sl *starlightclient) UploadBigFile(filePath string, reader io.Reader, totalLength int64) error {
 	err := sl.SetToken()
 	if err != nil {
-		time.Sleep(time.Duration(15) * time.Second)
-		err = sl.SetToken()
-		if err != nil {
-			return err
-		}
+		return err
 	}
 
 	currentOffset := 0
@@ -639,45 +671,45 @@ func (sl *starlightclient) UploadBigFile(filePath string, reader io.Reader, tota
 
 		length := n
 
-		_, _, err = util.Run(1, 3, 4, "UploadBigFile", func() (any, bool, error) {
-			var buf = bytes.Buffer{}
-			buf.Write(dataBuffer[:n])
-			//tee := io.TeeReader(reader, &buf)
-			//io.ReadAll(tee)
+		_, _, err = util.Run(15, 100, 4, "UploadBigFile", func() (any, bool, error) {
 
-			//生成要访问的url
-			requestUrl := sl.apiEnv + "/storage/upload"
+			response, err := util.LoopDoRequest(func() (*http.Response, error) {
+				var buf = bytes.Buffer{}
+				buf.Write(dataBuffer[:n])
+				//tee := io.TeeReader(reader, &buf)
+				//io.ReadAll(tee)
 
-			data := make(url.Values)
-			data["file"] = []string{filePath}
-			data["overwrite"] = []string{"true"}
+				//生成要访问的url
+				requestUrl := sl.apiEnv + "/storage/upload"
 
-			uri, _ := url.Parse(requestUrl)
-			values := uri.Query()
-			if values != nil {
-				for k, v := range values {
-					data[k] = v
+				data := make(url.Values)
+				data["file"] = []string{filePath}
+				data["overwrite"] = []string{"true"}
+
+				uri, _ := url.Parse(requestUrl)
+				values := uri.Query()
+				if values != nil {
+					for k, v := range values {
+						data[k] = v
+					}
 				}
-			}
-			uri.RawQuery = data.Encode()
-			//提交请求
-			//println("buf.len before", buf.Len())
-			request, err := http.NewRequest(http.MethodPut, uri.String(), &buf)
-			//println("buf.len after", buf.Len())
-			if err != nil {
-				return nil, false, err
-			}
-			request.Header.Add("bihu-token", sl.token)
-			request.Header.Add("Content-Range", "bytes="+strconv.Itoa(currentOffset)+"-"+strconv.Itoa(currentOffset+length-1)+"/"+strconv.FormatInt(totalLength, 10))
-			//println("bytes:" + request.Header.Get("Content-Range") + " length:" + strconv.Itoa(length))
-			client := &http.Client{}
-			//处理返回结果
-			response, err := client.Do(request)
-			if err != nil {
-				logger.Errorf("starlight---UploadBigFile error=%s", err.Error())
-				logger.Errorf("starlight---UploadBifFile response code=%s status=%s", response.StatusCode, response.Status)
-				return nil, false, err
-			}
+				uri.RawQuery = data.Encode()
+				//提交请求
+				//println("buf.len before", buf.Len())
+				request, err := http.NewRequest(http.MethodPut, uri.String(), &buf)
+				//println("buf.len after", buf.Len())
+				if err != nil {
+					return nil, err
+				}
+				request.Header.Add("bihu-token", sl.token)
+				request.Header.Add("Content-Range", "bytes="+strconv.Itoa(currentOffset)+"-"+strconv.Itoa(currentOffset+length-1)+"/"+strconv.FormatInt(totalLength, 10))
+				//println("bytes:" + request.Header.Get("Content-Range") + " length:" + strconv.Itoa(length))
+				client := &http.Client{}
+				defer client.CloseIdleConnections()
+				//处理返回结果
+				return client.Do(request)
+			})
+
 			if response == nil {
 				logger.Errorf("starlight---UploadBigFile response nil Error")
 				return nil, false, fmt.Errorf("starlight---UploadBigFile response nil")
@@ -685,7 +717,7 @@ func (sl *starlightclient) UploadBigFile(filePath string, reader io.Reader, tota
 			//logger.Infof("starlight***Upload error, bytes=%s, length=%s, n=%d, dataBuffer=%d, pipeBuffer=%d",
 			//	strconv.Itoa(currentOffset)+"-"+strconv.Itoa(currentOffset+length-1)+"/"+strconv.FormatInt(totalLength, 10),
 			//	strconv.Itoa(length), n, len(dataBuffer), len(pipeBuffer))
-			defer client.CloseIdleConnections()
+
 			if response.StatusCode/100 != 2 {
 				err = fmt.Errorf("starlight---UploadBigFile bad resp status %s", response.StatusCode)
 			}
