@@ -332,7 +332,7 @@ func (sl *starlightclient) GetFileMeta(file string) (*FileMeta, error) {
 		return nil, err
 	}
 
-	anyResponse, _, err := util.Run(15, 100, 4, "GetFileMeta", func() (any, bool, error) {
+	fileMeta, _, err := util.Run(15, 100, 4, "GetFileMeta", func() (any, bool, error) {
 
 		response, err := util.LoopDoRequest(func() (*http.Response, error) {
 			requestUrl := sl.apiEnv + "/storage/state"
@@ -372,38 +372,35 @@ func (sl *starlightclient) GetFileMeta(file string) (*FileMeta, error) {
 		if response.StatusCode/100 != 2 {
 			err = fmt.Errorf("starlight---GetFileMeta file=%s request responseCode %s", file, response.StatusCode)
 		}
-		return response, false, err
+		defer response.Body.Close()
+		body, err := ioutil.ReadAll(response.Body)
+		if err != nil {
+			logger.Errorf("starlight---GetFileMeta file=%s GetFileMeta body read error %s", file, err.Error())
+			return nil, false, err
+		}
+		var fileMetaResp FileMetaResp
+		err = json.Unmarshal((body), &fileMetaResp)
+		if err != nil {
+			logger.Errorf("starlight---GetFileMeta file=%s GetFileMeta json parse error %s", file, err.Error())
+			return nil, false, err
+		}
+
+		if fileMetaResp.Code == 200 {
+			return &fileMetaResp.Spec, true, nil
+		} else if fileMetaResp.Code == 11502 {
+			return nil, true, fmt.Errorf("NoSuchKey")
+		} else {
+			logger.Errorf("fileMetaResp.Code %s", fileMetaResp.Code)
+			return nil, false, fmt.Errorf("starlight---GetFileMeta error fileMetaResp.Code=%s fileMetaResp.Info=%s", fileMetaResp.Code, fileMetaResp.Info)
+		}
 	})
 
 	if err != nil {
 		logger.Errorf("starlight---GetFileMeta file=%s request error %s", file, err.Error())
 		return nil, err
 	}
-	response := anyResponse.(*http.Response)
-	if response.StatusCode/100 != 2 {
-		return nil, fmt.Errorf("starlight---GetFileMeta file=%s StatusCode error %s", file, response.StatusCode)
-	}
+	return fileMeta.(*FileMeta), err
 
-	defer response.Body.Close()
-	body, err := ioutil.ReadAll(response.Body)
-	if err != nil {
-		logger.Errorf("starlight---GetFileMeta file=%s GetFileMeta body read error %s", file, err.Error())
-		return nil, err
-	}
-	var fileMetaResp FileMetaResp
-	err = json.Unmarshal((body), &fileMetaResp)
-	if err != nil {
-		logger.Errorf("starlight---GetFileMeta file=%s GetFileMeta json parse error %s", file, err.Error())
-		return nil, err
-	}
-
-	if fileMetaResp.Code == 200 {
-		return &fileMetaResp.Spec, nil
-	} else if fileMetaResp.Code == 11502 {
-		return nil, fmt.Errorf("NoSuchKey")
-	}
-	logger.Errorf("fileMetaResp.Code %s", fileMetaResp.Code)
-	return nil, fmt.Errorf("starlight---GetFileMeta error fileMetaResp.Code=%s fileMetaResp.Info=%s", fileMetaResp.Code, fileMetaResp.Info)
 }
 
 func (sl *starlightclient) FileExist(file string) (bool, error) {
