@@ -396,7 +396,6 @@ func (sl *starlightclient) GetFileMeta(file string) (*FileMeta, error) {
 	})
 
 	if err != nil {
-		logger.Errorf("starlight---GetFileMeta file=%s request error %s", file, err.Error())
 		return nil, err
 	}
 	return fileMeta.(*FileMeta), err
