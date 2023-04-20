@@ -642,6 +642,7 @@ func (sl *starlightclient) UploadBigFile(filePath string, reader io.Reader, tota
 	}
 
 	currentOffset := 0
+	var readLength int64 = 0
 	for {
 		n := 0
 		dataBuffer := make([]byte, 0)
@@ -655,9 +656,10 @@ func (sl *starlightclient) UploadBigFile(filePath string, reader io.Reader, tota
 			if nn == 0 {
 				break
 			}
-			dataBuffer = append(dataBuffer, pipeBuffer...)
+			dataBuffer = append(dataBuffer, pipeBuffer[:nn]...)
 			n += nn
-			if nn < READ_BUFFER_SIZE || n >= CHUNK_SIZE {
+			readLength += int64(nn)
+			if readLength >= totalLength || n >= CHUNK_SIZE {
 				break
 			}
 		}

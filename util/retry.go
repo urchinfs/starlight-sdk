@@ -45,10 +45,8 @@ func LoopDoRequest(f func() (response *http.Response, err error)) (*http.Respons
 			time.Sleep(time.Duration(3) * time.Second)
 		} else if retryCount <= 360+20 {
 			time.Sleep(time.Duration(10) * time.Second)
-		} else if retryCount <= 24*120+360+20 {
+		} else if retryCount <= 4*120+360+20 {
 			time.Sleep(time.Duration(30) * time.Second)
-		} else if retryCount <= 7*24*60+24*120+360+20 {
-			time.Sleep(time.Duration(60) * time.Second)
 		} else {
 			break
 		}
