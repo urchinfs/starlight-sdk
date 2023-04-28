@@ -1,6 +1,7 @@
 package starlight
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -8,8 +9,11 @@ import (
 	"github.com/urchinfs/starlight-sdk/util"
 	"io"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -32,7 +36,7 @@ type Starlightclient interface {
 	GetFileMeta(path string) (*FileMeta, error)
 
 	// download file or directory
-	Download(path string) (io.ReadCloser, error)
+	Download(path, tmpDir string) (io.ReadCloser, error)
 
 	// upload
 	Upload(filePath string, reader io.Reader, totalLength int64) error
@@ -123,9 +127,10 @@ type UploadResp struct {
 }
 
 const (
-	CHUNK_SIZE       = 16 * 1024 * 1024
-	READ_BUFFER_SIZE = 32 * 1024
-	FILE_SHARD_LIMIT = 128 * 1024 * 1024
+	CHUNK_SIZE          = 16 * 1024 * 1024
+	READ_BUFFER_SIZE    = 32 * 1024
+	FILE_SHARD_LIMIT    = 128 * 1024 * 1024
+	DOWNLOAD_SHARD_SIZE = 500 * 1024 * 1024
 )
 
 func (sl *starlightclient) isTokenValid() (bool, error) {
@@ -208,7 +213,6 @@ func (sl *starlightclient) SetToken() error {
 	}
 	sl.token = starlightResp.Spec
 	sl.tokenCreateAt = time.Now()
-	//println("token:" + sl.token)
 	return nil
 
 }
@@ -505,7 +509,19 @@ func (sl *starlightclient) DeleteFile(path string) (bool, error) {
 
 }
 
-func (sl *starlightclient) Download(path string) (io.ReadCloser, error) {
+func (sl *starlightclient) Download(path, tmpDir string) (io.ReadCloser, error) {
+	fileMeta, err := sl.GetFileMeta(path)
+	if err != nil {
+		return nil, err
+	}
+	if fileMeta.Size < DOWNLOAD_SHARD_SIZE {
+		return sl.DownloadTinyFile(path)
+	} else {
+		return sl.DownloadByShard(path, tmpDir, fileMeta)
+	}
+}
+
+func (sl *starlightclient) DownloadTinyFile(path string) (io.ReadCloser, error) {
 	err := sl.SetToken()
 	if err != nil {
 		return nil, err
@@ -558,6 +574,131 @@ func (sl *starlightclient) Download(path string) (io.ReadCloser, error) {
 	response := anyResponse.(*http.Response)
 
 	return response.Body, nil
+}
+
+type FileOpenCloser struct {
+	reader   io.Reader
+	tmpFile  *os.File
+	filePath string
+}
+
+func (foc FileOpenCloser) Read(p []byte) (n int, err error) {
+	return foc.reader.Read(p)
+}
+
+func (foc FileOpenCloser) Close() error {
+	err := foc.tmpFile.Close()
+	if err != nil {
+		logger.Errorf("starlight---Close tmpFile error=%s", err.Error())
+		return err
+	}
+	err = os.Remove(foc.filePath)
+	if err != nil {
+		logger.Errorf("starlight---Auto Delete tmpFile error=%s", err.Error())
+		return err
+	}
+	return nil
+}
+
+func (sl *starlightclient) DownloadByShard(path, tmpDir string, fileMeta *FileMeta) (io.ReadCloser, error) {
+	err := sl.SetToken()
+	if err != nil {
+		return nil, err
+	}
+	// 计算分片的数量
+	fileLength := int64(fileMeta.Size)
+	numChunks := (fileLength + DOWNLOAD_SHARD_SIZE - 1) / DOWNLOAD_SHARD_SIZE
+	//生成要访问的url
+	requestUrl := sl.apiEnv + "/storage/download"
+	data := make(url.Values)
+	data["file"] = []string{path}
+	uri, _ := url.Parse(requestUrl)
+	values := uri.Query()
+	if values != nil {
+		for k, v := range values {
+			data[k] = v
+		}
+	}
+	uri.RawQuery = data.Encode()
+
+	tmpFilePath := filepath.Join(tmpDir, fileMeta.Name)
+	tmpFile, err := os.Create(tmpFilePath)
+	if err != nil {
+		panic(err)
+	}
+	for i := int64(0); i < numChunks; i++ {
+
+		start := i * DOWNLOAD_SHARD_SIZE
+		end := start + DOWNLOAD_SHARD_SIZE - 1
+		if end >= fileLength {
+			end = fileLength - 1
+		}
+
+		//分片有限次重试缓解连接端开问题
+		_, _, err = util.Run(15, 100, 4, "Download", func() (any, bool, error) {
+
+			// 部分多次重试解决限流问题
+			response, err := util.LoopDoRequest(func() (*http.Response, error) {
+				client := &http.Client{}
+				defer client.CloseIdleConnections()
+				request, err := http.NewRequest(http.MethodGet, uri.String(), nil)
+
+				if err != nil {
+					logger.Errorf("starlight---DownloadByShard new request error", err.Error())
+					return nil, err
+				}
+				request.Header.Add("User-Agent", "Apifox/1.0.0 (https://www.apifox.cn)")
+				request.Header.Add("bihu-token", sl.token)
+				request.Header.Add("Range", "bytes="+strconv.FormatInt(start, 10)+"-"+strconv.FormatInt(end, 10))
+				response, err := client.Do(request)
+				if err != nil {
+					logger.Errorf("starlight---DownloadByShard do request", err.Error())
+					return nil, err
+				}
+				return response, err
+			})
+
+			if err != nil {
+				return nil, false, err
+			}
+
+			if response == nil {
+				logger.Errorf("starlight---Download response nil Error")
+				return nil, false, fmt.Errorf("starlight---DownloadByShard response nil")
+			}
+
+			if response.StatusCode/100 != 2 {
+				err = fmt.Errorf("starlight---Download bad resp status %s", response.StatusCode)
+			}
+			copyLen, err := io.Copy(tmpFile, response.Body)
+			logger.Infof("starlight&&&DownloadByShard shard copyLen=%d", copyLen)
+			if err != nil {
+				logger.Errorf("starlight---DownloadByShard read all err=%s", err.Error())
+				return nil, false, err
+			}
+			defer response.Body.Close()
+			return nil, false, err
+		})
+		if err != nil {
+			logger.Errorf("starlight---DownloadByShard shard err=%s", err.Error())
+			return nil, err
+		}
+	}
+	tmpFile.Close()
+	tmpFile, err = os.Open(tmpFilePath)
+	if err != nil {
+		logger.Errorf("starlight---DownloadByShard reopen file err=%s", err.Error())
+		log.Fatal(err)
+	}
+	reader := bufio.NewReader(tmpFile)
+
+	if err != nil {
+		logger.Errorf("starlight---DownloadByShard Error %s", err)
+		return nil, err
+	}
+
+	return FileOpenCloser{tmpFile: tmpFile, filePath: tmpFilePath, reader: reader}, err
+
 }
 
 func (sl *starlightclient) Upload(filePath string, reader io.Reader, totalLength int64) error {
@@ -693,15 +834,12 @@ func (sl *starlightclient) UploadBigFile(filePath string, reader io.Reader, tota
 				}
 				uri.RawQuery = data.Encode()
 				//提交请求
-				//println("buf.len before", buf.Len())
 				request, err := http.NewRequest(http.MethodPut, uri.String(), &buf)
-				//println("buf.len after", buf.Len())
 				if err != nil {
 					return nil, err
 				}
 				request.Header.Add("bihu-token", sl.token)
 				request.Header.Add("Content-Range", "bytes="+strconv.Itoa(currentOffset)+"-"+strconv.Itoa(currentOffset+length-1)+"/"+strconv.FormatInt(totalLength, 10))
-				//println("bytes:" + request.Header.Get("Content-Range") + " length:" + strconv.Itoa(length))
 				client := &http.Client{}
 				defer client.CloseIdleConnections()
 				//处理返回结果
