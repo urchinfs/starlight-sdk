@@ -605,6 +605,19 @@ func (sl *starlightclient) DownloadByShard(path, tmpDir string, fileMeta *FileMe
 	if err != nil {
 		return nil, err
 	}
+
+	// check
+	if _, err := os.Stat(tmpDir); err == nil {
+		logger.Infof("DownloadByShard&&&tmpDir exist %s", tmpDir)
+	} else {
+		logger.Infof("DownloadByShard&&&tmpDir not exist %s try to create", tmpDir)
+		err := os.MkdirAll(tmpDir, 0711)
+		if err != nil {
+			tmpDir = ""
+			logger.Errorf("DownloadByShard&&&tmpDir failed to create tmpDir %s, use current dir as tmpDir", tmpDir)
+		}
+	}
+
 	// 计算分片的数量
 	fileLength := int64(fileMeta.Size)
 	numChunks := (fileLength + DOWNLOAD_SHARD_SIZE - 1) / DOWNLOAD_SHARD_SIZE
